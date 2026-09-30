@@ -1,0 +1,368 @@
+'use strict';
+// Type definition required for CDSLint
+/** @typedef {import('@sap/cds').CRUDEventHandler.On} OnHandler */
+
+const cds = require('@sap/cds');
+
+// Include utility files
+const { color, poetrySlamStatusCode, httpCodes } = require('../lib/codes');
+const {
+  calculatePoetrySlamData,
+  updatePoetrySlam,
+  convertToArray,
+  createProject
+} = require('../lib/entityCalculations');
+
+const uniqueNumberGenerator = require('../lib/uniqueNumberGenerator');
+
+const ConnectorS4HC = require('./connector/connectorS4HC');
+
+const GenAI = require('../lib/genAI');
+
+// Type definition required for CDSLint
+/** @type {OnHandler} */
+module.exports = async (srv) => {
+  const db = await cds.connect.to('db');
+  const { PoetrySlams } = srv.entities;
+
+  // ----------------------------------------------------------------------------
+  // Implementation of entity events (entity PoetrySlams)
+  // ----------------------------------------------------------------------------
+
+  // Initialize status of drafts
+  // Default the freeVisitorSeats to the maximumVisitorsNumber
+  // Default number of poetry slam (human readable identifier)
+  srv.before('CREATE', PoetrySlams.drafts, (req) => initializePoetrySlam(req));
+
+  // Initialize status
+  // Default the freeVisitorSeats to the maximumVisitorsNumber
+  // Default number of poetry slam (human readable identifier)
+  srv.before('CREATE', PoetrySlams, async (req) => {
+    initializePoetrySlam(req);
+
+    // Generate readable ID for poetry slam document
+    try {
+      req.data.number =
+        'PS' +
+        (await uniqueNumberGenerator.getNextNumber(
+          'poetrySlamNumber',
+          db.kind,
+          req.data.ID
+        ));
+    } catch (error) {
+      console.error(
+        `Readable ID for Poetry Slam document could not be generated (error: ${error})`
+      );
+      req.error(httpCodes.internal_server_error, 'NO_POETRYSLAM_NUMBER', [
+        error.message
+      ]);
+    }
+  });
+
+  // Set the event status to booked based on confirmed seats
+  srv.on('UPDATE', [PoetrySlams.drafts, PoetrySlams], async (req, next) => {
+    const { ID } = req.data;
+    const result = await calculatePoetrySlamData(ID, req);
+    if (result) {
+      req.data.freeVisitorSeats = result.freeVisitorSeats;
+      req.data.status_code = result.status_code;
+    }
+    return next();
+  });
+
+  srv.before('DELETE', PoetrySlams, async (req) => {
+    // In req.subject, the poetry slam that is to be deleted is already included as condition
+    const poetrySlam = await SELECT.one
+      .from(req.subject)
+      .columns('status_code', 'number');
+
+    if (
+      poetrySlam.status_code !== poetrySlamStatusCode.inPreparation &&
+      poetrySlam.status_code !== poetrySlamStatusCode.canceled
+    ) {
+      console.error('Poetry Slam could not be deleted due to status');
+      req.error(httpCodes.bad_request, 'DELETE_POETRYSLAM_NOT_POSSIBLE', [
+        poetrySlam.number
+      ]);
+    }
+  });
+
+  // Apply a colour code based on the poetry slam status
+  srv.after('READ', [PoetrySlams.drafts, PoetrySlams], (data) => {
+    for (const poetrySlam of convertToArray(data)) {
+      const status = poetrySlam.status?.code || poetrySlam.status_code;
+      // Set status colour code
+      switch (status) {
+        case poetrySlamStatusCode.inPreparation:
+          poetrySlam.statusCriticality = color.grey; // New poetry slams are grey
+          break;
+        case poetrySlamStatusCode.published:
+          poetrySlam.statusCriticality = color.green; // Published poetry slams are green
+          break;
+        case poetrySlamStatusCode.booked:
+          poetrySlam.statusCriticality = color.yellow; // Fully booked poetry slams are yellow
+          break;
+        case poetrySlamStatusCode.canceled:
+          poetrySlam.statusCriticality = color.red; // Canceled poetry slams are red
+          break;
+        default:
+          poetrySlam.statusCriticality = null;
+      }
+    }
+  });
+
+  // Expand poetry slams
+  srv.on('READ', [PoetrySlams.drafts, PoetrySlams], async (req, next) => {
+    // Read the PoetrySlams instances
+    let poetrySlams = await next();
+
+    // In this method we enrich the data from the database by external data and calculated fields
+    // If none of these enriched fields are requested, we do not need to read from the external services
+    // So we first check if the requested columns contain any of the enriched columns and return if not
+    const requestedColumns = req.query.SELECT.columns?.map((item) =>
+      Array.isArray(item.ref) ? item.ref[0] : item.as
+    );
+    const enrichedFields = [
+      'projectSystemName',
+      'processingStatusText',
+      'projectProfileCodeText',
+      'projectURL',
+      'createS4HCProjectEnabled',
+      'isS4HC',
+      'toS4HCProject'
+    ];
+
+    if (
+      requestedColumns &&
+      !enrichedFields.some((item) => requestedColumns?.includes(item))
+    ) {
+      return poetrySlams;
+    }
+
+    // SAP S/4HANA Cloud
+    // Check and read SAP S/4HANA Cloud project related data
+    const connectorS4HC = await ConnectorS4HC.createConnectorInstance(req);
+    if (connectorS4HC?.isConnected()) {
+      poetrySlams = await connectorS4HC.readProject(poetrySlams);
+    }
+
+    for (const poetrySlam of convertToArray(poetrySlams)) {
+      [
+        'projectSystemName',
+        'processingStatusText',
+        'projectProfileCodeText'
+      ].forEach((item) => {
+        poetrySlam[item] = poetrySlam[item] || '';
+      });
+
+      // Update project system name and visibility of the "Create Project"-buttons
+      if (poetrySlam.projectID) {
+        const systemNames = {
+          S4HC: connectorS4HC.getSystemName()
+        };
+        poetrySlam.createS4HCProjectEnabled = false;
+        poetrySlam.projectSystemName = systemNames[poetrySlam.projectSystem];
+
+        let connector;
+        if (poetrySlam.projectSystem === ConnectorS4HC.ERP_SYSTEM) {
+          connector = connectorS4HC;
+        } else if (connectorS4HC?.isConnected()) {
+          connector = connectorS4HC;
+        }
+
+        poetrySlam.projectURL = connector.determineDestinationURL(
+          poetrySlam.projectID
+        );
+      } else {
+        poetrySlam.createS4HCProjectEnabled = connectorS4HC.isConnected();
+      }
+
+      // Update the backend system connected indicator used in UI for controlling visibility of UI elements
+      poetrySlam.isS4HC = connectorS4HC.isConnected();
+    }
+
+    // Return remote data
+    return poetrySlams;
+  });
+
+  // ----------------------------------------------------------------------------
+  // Implementation of entity actions (entity PoetrySlams)
+  // ----------------------------------------------------------------------------
+
+  // Entity action "cancel": Set the status of poetry slam to canceled
+  // Note: Our entity action "cancel" is different from the core service "CANCEL"
+  // Actions are not mass enabled in service, only on UI; they are handled in a batch mode;
+  srv.on('cancel', async (req) => {
+    const id = req.params[req.params.length - 1].ID; // Depending on the UI, the request can contain several IDs, e.g. /PoetrySlams(ID1)/Visits(ID2) would contain two IDs, /Visits(ID1) will contain only one. However, the last ID is always the ID of the Visit
+    const poetrySlam = await SELECT.one
+      .from('PoetrySlamService.PoetrySlams')
+      .columns('ID', 'status_code', 'number')
+      .where({ ID: id });
+
+    // If poetry slam was not found, throw an error
+    if (!poetrySlam) {
+      console.error('Poetry Slam not found');
+      req.error(httpCodes.bad_request, 'POETRYSLAM_NOT_FOUND', [id]);
+      return;
+    }
+
+    if (poetrySlam.status_code === poetrySlamStatusCode.inPreparation) {
+      // Poetry slams that are in preparation shall be deleted
+      console.info(
+        `Poetry Slam can't be canceled as it's being prepared. Deletion possible.`
+      );
+      req.info(httpCodes.ok, 'ACTION_CANCEL_IN_PREPARATION', [
+        poetrySlam.number
+      ]);
+      return poetrySlam;
+    }
+
+    poetrySlam.status_code = poetrySlamStatusCode.canceled;
+
+    const success = await updatePoetrySlam(
+      id,
+      poetrySlam.status_code,
+      null,
+      req,
+      { text: 'ACTION_CANCEL_NOT_POSSIBLE', param: poetrySlam.number },
+      { text: 'ACTION_CANCEL_SUCCESS', param: poetrySlam.number }
+    );
+
+    return success ? poetrySlam : {}; // Return the changed poetry slam
+  });
+
+  // Entity action "publish": Set the status of poetry slam to published
+  // Actions are not mass enabled in service, only on UI; they are handled in a batch mode;
+  srv.on('publish', async (req) => {
+    const id = req.params[req.params.length - 1].ID;
+    // Allow action for active entity instances only (draft events cannot be published)
+    const poetrySlam = await SELECT.one
+      .from('PoetrySlamService.PoetrySlams')
+      .columns('ID', 'status_code', 'number')
+      .where({ ID: id });
+
+    // If poetry slam was not found, throw an error
+    if (!poetrySlam) {
+      console.error('Poetry Slam not found');
+      req.error(httpCodes.bad_request, 'POETRYSLAM_NOT_FOUND', [id]);
+      return;
+    }
+
+    if (
+      poetrySlam.status_code === poetrySlamStatusCode.booked ||
+      poetrySlam.status_code === poetrySlamStatusCode.published
+    ) {
+      req.info(httpCodes.ok, 'ACTION_PUBLISHED_ALREADY', [poetrySlam.number]);
+      return poetrySlam;
+    }
+
+    // For canceled poetry slams that are re-published a recalculation of free visitor seats is required
+    const data = await calculatePoetrySlamData(id, req);
+    poetrySlam.status_code =
+      data.freeVisitorSeats > 0
+        ? poetrySlamStatusCode.published
+        : poetrySlamStatusCode.booked;
+
+    // Update status
+    const success = await updatePoetrySlam(
+      id,
+      poetrySlam.status_code,
+      null,
+      req,
+      { text: 'ACTION_PUBLISH_NOT_POSSIBLE', param: poetrySlam.number },
+      { text: 'ACTION_PUBLISH_SUCCESS', param: poetrySlam.number }
+    );
+
+    return success ? poetrySlam : {}; // Return the changed poetry slam
+  });
+
+  // Entity action: Clear project data
+  srv.on('clearProjectData', async (req) => {
+    const poetrySlamID = req.params[req.params.length - 1].ID;
+
+    // Allow action for active entity instances only
+    const poetrySlam = await SELECT.one
+      .from('PoetrySlamService.PoetrySlams')
+      .columns('ID', 'number')
+      .where({ ID: poetrySlamID });
+
+    // If poetry slam was not found, throw an error
+    if (!poetrySlam) {
+      console.error('Poetry Slam not found');
+      req.error(httpCodes.bad_request, 'POETRYSLAM_NOT_FOUND', [poetrySlamID]);
+      return;
+    }
+
+    // Remove all project data
+    const updateValues = {
+      projectID: null,
+      projectObjectID: null,
+      projectSystem: null
+    };
+
+    const result = await UPDATE(`PoetrySlamService.PoetrySlams`)
+      .set(updateValues)
+      .where({ ID: poetrySlamID });
+
+    if (result === 1) {
+      req.info(httpCodes.ok, 'ACTION_CLEAR_PROJECT_DATA_SUCCESS');
+    } else {
+      console.error('PoetrySlam could not be updated.');
+      req.error(
+        httpCodes.internal_server_error,
+        'POETRYSLAM_COULD_NOT_BE_UPDATED',
+        [poetrySlam.number]
+      );
+    }
+  });
+
+  //--------------------------------------------------------------------------
+  // Implementation of entity events (entity PoetrySlams)
+  // with impact on remote services of SAP S/4HANA Cloud
+  // --------------------------------------------------------------------------
+
+  // Entity action: Create SAP S/4HANA Cloud Enterprise Project
+  srv.on('createS4HCProject', async (req) => {
+    await createProject(
+      req,
+      srv,
+      ConnectorS4HC,
+      'ACTION_ASSIGN_PROJECT_SUCCESS',
+      'ACTION_CREATE_PROJECT_NO_S4_HANA_CLOUD_SYSTEM'
+    );
+  });
+
+  // Entity action: Create a poetry slam with generative artificial intelligence
+  srv.on('createWithAI', async (req) => {
+    const genAI = await GenAI.init();
+
+    const response = await genAI.callOrchestrationChatCompletion(
+      req.data.tags,
+      req.data.language,
+      req.data.rhyme,
+      req
+    );
+
+    // In case the orchestration call could not be started, no draft will be created
+    if (!response) return null;
+
+    const poetrySlamDraft = await GenAI.createPoetrySlamWithAI(
+      response,
+      req,
+      srv,
+      db
+    );
+    return poetrySlamDraft;
+  });
+
+  // ----------------------------------------------------------------------------
+  // Implementation of reuse functions
+  // ----------------------------------------------------------------------------
+
+  // Initialize max visitor number, free visitor seats and booked seats
+  function initializePoetrySlam(req) {
+    req.data.freeVisitorSeats = req.data.maxVisitorsNumber =
+      req.data.maxVisitorsNumber ?? 0;
+    req.data.bookedSeats = 0;
+  }
+};

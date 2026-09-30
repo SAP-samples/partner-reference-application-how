@@ -1,0 +1,42 @@
+{
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.PoetrySlamFull",
+      "description": "Full Read/Write Access to Poetry Slams"
+    },
+    {
+      "name": "$XSAPPNAME.PoetrySlamRestricted",
+      "description": "Restricted Read/Write Access to Poetry Slams"
+    },
+    {
+      "name": "$XSAPPNAME.PoetrySlamReadonly",
+      "description": "Read-only Access to Poetry Slams"
+    },
+    {
+      "name": "$XSAPPNAME.mtcallback",
+      "description": "Subscription via SaaS Registry",
+      "grant-as-authority-to-apps": [
+        "$XSAPPNAME(application,sap-provisioning,tenant-onboarding)"
+      ]
+    }
+  ],
+  "attributes": [],
+  "role-templates": [
+    {
+      "name": "PoetrySlamManagerRole",
+      "description": "Full Access to Poetry Slams",
+      "scope-references": ["$XSAPPNAME.PoetrySlamFull"],
+      "attribute-references": []
+    },
+    {
+      "name": "PoetrySlamVisitorRole",
+      "description": "Restricted Access to Poetry Slams for Visitors",
+      "scope-references": ["$XSAPPNAME.PoetrySlamRestricted"],
+      "attribute-references": []
+    }
+  ],
+  "oauth2-configuration": {
+    "credential-types": ["binding-secret"]
+  },
+  "authorities-inheritance": false
+}
