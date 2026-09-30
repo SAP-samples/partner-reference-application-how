@@ -82,7 +82,7 @@ Now that you've built the base model of the Partner Reference Application and en
 1. Clone the application into your SAP Business Application Studio.
     1. In SAP Business Application Studio, open the **Command Palette** and enter *Git: Clone*.
     2. Enter the repository URL and hit **Enter**:
-   	https://github.tools.sap/D065033/partner-reference-application-workshop.git
+   	https://github.com/SAP-samples/partner-reference-application-how.git.
 2. In the terminal, navigate to the Partner Reference Application and execute the following commands in the required folders.
     You're in the root folder of the project.
     1. Run the following command to install the npm packages for the root folder.
