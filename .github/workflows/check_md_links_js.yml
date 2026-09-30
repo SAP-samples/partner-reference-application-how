@@ -1,0 +1,36 @@
+name: Check Markdown Links with js
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - ready_for_review
+      - synchronize
+    branches:
+      - main-tutorial
+
+jobs:
+  check-links:
+    runs-on: linux-amd64-m-docker-m
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: 'Setup Node.js'
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - run: npm install node-fetch
+
+    - name: 'Run link checker for markdowns'
+      run: |
+        node .github/scripts/check_links.mjs
+      env:
+        git_head_ref: ${{github.head_ref}}
+      
