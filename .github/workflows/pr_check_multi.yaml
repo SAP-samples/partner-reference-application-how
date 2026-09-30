@@ -1,0 +1,42 @@
+name: Pull Request Checks - main-multi-tenant
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+    branches:
+      - main-multi-tenant
+
+jobs:
+  test_multi:
+    uses: ./.github/workflows/pr_voter_multi.yml
+    secrets: inherit
+  renovate_postprocessing:
+    if: github.actor == 'ospo-renovate[bot]' && startsWith(github.head_ref, 'renovate/')
+    uses: ./.github/workflows/renovate_postprocessing.yaml
+    needs: test_multi
+    secrets: inherit
+    with:
+      last_commit_label: '${{ github.event.pull_request.head.sha }}'
+  report_result:
+    needs: [test_multi, renovate_postprocessing]
+    runs-on: linux-amd64-s-docker-s
+    if: ${{ !cancelled() }}
+    steps:
+      - name: 'Report Failure'
+        if: needs.test_multi.result == 'failure' || needs.renovate_postprocessing.result == 'failure'
+        run: |
+          echo 'Test Multi: ${{ needs.test_multi.result }}';
+          echo 'Renovate Post Processing: ${{ needs.renovate_postprocessing.result }}';
+          echo 'Pull Request checks failed.';
+          exit 1;
+      - name: 'Report Success'
+        run: |
+          echo 'Test Multi: ${{ needs.test_multi.result }}';
+          echo 'Renovate Post Processing: ${{ needs.renovate_postprocessing.result }}';
+          echo 'Pull Request checks were successful.';
+          exit 0;

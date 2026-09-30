@@ -1,0 +1,89 @@
+name: Pull Request Voter main-multi-tenant
+
+on: workflow_call
+
+jobs:
+  test_multi:
+    runs-on: linux-amd64-m-docker-m
+    environment: Voter Multi
+    steps:
+      - name: 'Check-out repository'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ vars.BUILD_NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 'Add CF Repo'
+        run: |
+          echo "deb [trusted=yes] https://packages.cloudfoundry.org/debian stable main" | sudo tee -a  /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update && sudo apt-get install -y cf8-cli
+
+      - name: 'Install Mocha'
+        run: npm install -g mocha
+
+      - name: 'Install CDS CLI'
+        run: npm i -g @sap/cds-dk
+
+      - name: 'Install npm dependencies'
+        run: npm install
+
+      - name: 'Run Test'
+        run: npm run test
+
+      - name: 'Prettier check'
+        continue-on-error: false
+        run: npm run prettier-check
+
+      - name: 'Eslint check'
+        continue-on-error: false
+        run: npm run eslint
+
+      - name: Verify test coverage (jest)
+        run: |
+          npm run code-coverage
+
+      - name: 'SonarQube scan'
+        uses: sonarsource/sonarqube-scan-action@v7.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL}}
+        with:
+          args: >
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }}
+            -Dsonar.pullrequest.branch=${{ github.event.pull_request.head.ref }}
+            -Dsonar.scm.revision=${{ github.event.pull_request.head.sha }}
+            -Dsonar.sonar.pullrequest.base=${{github.event.pull_request.base.ref}}
+
+      - name: SonarQube Quality Gate check
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-scan-action@v7.1.0
+        timeout-minutes: 3
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }} #OPTIONAL
+
+      - name: 'Login to CF'
+        run: cf login -a $CF_API -o $CF_ORG -s $CF_SPACE -u $CF_USERNAME -p $CF_PASSWORD
+        env:
+          CF_API: ${{ vars.CF_API }}
+          CF_ORG: ${{ vars.CF_ORG_MULTI_REDEPLOY }}
+          CF_SPACE: ${{ vars.CF_SPACE_TEST }}
+          CF_USERNAME: ${{ secrets.CF_USERNAME }}
+          CF_PASSWORD: ${{ secrets.CF_PASSWORD }}
+
+      - name: 'Bind local project to shared hana instance'
+        run: cds bind -2 poetry-slams-automatedtests:poetry-slams-automatedtests-key
+
+      - name: 'Generate all the deployable HDI artifacts'
+        run: cds build --for hana
+
+      - name: 'Deploy database parts of project to SAP HANA instance'
+        run: cds deploy --to hana:poetry-slams-automatedtests --profile hybrid  --store-credentials
+
+      - name: 'Execute the tests on HANA'
+        run: cds bind --exec --profile hybrid npm run test
