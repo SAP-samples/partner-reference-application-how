@@ -1,0 +1,43 @@
+{
+  "name": "partner-reference-application-mtx",
+  "dependencies": {
+    "@cap-js/hana": "^2.7.0",
+    "@sap/cds": "^9.8.5",
+    "@sap/cds-mtxs": "^3.8.1",
+    "@sap/xssec": "^4.13.0",
+    "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "^2.2.0"
+  },
+  "scripts": {
+    "start": "cds-serve"
+  },
+  "cds": {
+    "profile": "mtx-sidecar",
+    "requires": {
+      "auth": "xsuaa",
+      "destinations": true,
+      "html5-host": {
+        "vcap": {
+          "label": "html5-apps-repo",
+          "plan": "app-host"
+        },
+        "subscriptionDependency": {
+          "uaa": "xsappname"
+        }
+      },
+      "poetry-slams-document-ai": {
+        "vcap": {
+          "label": "sap-document-information-extraction"
+        },
+        "subscriptionDependency": {
+          "uaa": "xsappname"
+        }
+      }
+    }
+  }
+}
