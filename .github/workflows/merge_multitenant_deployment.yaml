@@ -1,0 +1,189 @@
+name: Multi tenant test deployment
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main-multi-tenant
+
+concurrency:
+  group: Multi tenant test deployment
+
+jobs:
+  unsubscribe_consumer_4:
+    name: Unsubscribe Consumer 4
+    environment: Deploy
+    if: github.event.pull_request.merged == true
+    runs-on: linux-amd64-s-docker-s
+    steps:
+      - name: Download BTP CLI
+        run: |
+          sudo curl -LJO https://tools.hana.ondemand.com/additional/btp-cli-linux-amd64-latest.tar.gz --cookie eula_${{ vars.BTP_CLI_EULA_VERSION }}_agreed=tools.hana.ondemand.com/developer-license-${{ vars.BTP_CLI_EULA_VERSION }}.txt
+          tar -xvzf btp-cli-linux-amd64-latest.tar.gz
+          sudo mv linux-amd64/btp /usr/local/bin/
+          btp --version
+
+      - name: 'Login to BTP CLI'
+        run: btp login --url https://cpcli.cf.sap.hana.ondemand.com --subdomain CNSSANDBOX --user ${{ secrets.CF_USERNAME }} --password ${{ secrets.CF_PASSWORD }}
+
+      - name: 'Unsubscribe app for Consumer 4'
+        run: btp unsubscribe accounts/subaccount --subaccount ${{ vars.BTP_SUBACCOUNT_MULTI_SUBSCRIBER_NEWDEPLOY }} --from-app poetry-slams-${{ vars.CF_ORG_MULTI_DEPLOY }}-test --confirm
+
+      - name: 'Check subscription state'
+        run: |
+          time=""
+          while [[ $(btp list accounts/subscription --subaccount ${{ vars.BTP_SUBACCOUNT_MULTI_SUBSCRIBER_NEWDEPLOY }} 2> /dev/null | grep -e poetry-slams-${{ vars.CF_ORG_MULTI_DEPLOY }}-test | grep -e " NOT_SUBSCRIBED ") == "" && $time != "xxxxxxxxxxxxxxxxxxxx" ]]
+          do time+="x";echo $time; sleep 3; done
+          if [[ $time == "xxxxxxxxxxxxxxxxxxxx" ]]; then exit 1; else exit 0; fi
+
+  undeploy_for_new_deploy:
+    name: Undeploy
+    environment: Deploy
+    if: always() && github.event.pull_request.merged == true
+    runs-on: linux-amd64-s-docker-s
+    needs:
+      - unsubscribe_consumer_4
+    steps:
+      - name: 'Installation of CF CLI'
+        run: |
+          echo "deb [trusted=yes] https://packages.cloudfoundry.org/debian stable main" | sudo tee -a  /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update && sudo apt-get install -y cf8-cli
+
+      - name: 'Install required CF plugins'
+        run: cf install-plugin multiapps -f
+
+      - name: 'Login to CF'
+        run: cf login -a $CF_API -o $CF_ORG -s $CF_SPACE -u $CF_USERNAME -p $CF_PASSWORD
+        env:
+          CF_API: ${{ vars.CF_API }}
+          CF_ORG: ${{ vars.CF_ORG_MULTI_DEPLOY }}
+          CF_SPACE: ${{ vars.CF_SPACE_TEST }}
+          CF_USERNAME: ${{ secrets.CF_USERNAME }}
+          CF_PASSWORD: ${{ secrets.CF_PASSWORD }}
+
+      - name: 'Run cf undeploy'
+        run: cf undeploy poetry-slams --delete-services --delete-service-keys -f
+
+  deploy:
+    name: Deploy and Re-Deploy
+    environment: Deploy
+    if: always() && github.event.pull_request.merged == true
+    runs-on: linux-amd64-l-docker-l
+    needs: undeploy_for_new_deploy
+    steps:
+      - name: 'Check-out merged branch'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ vars.BUILD_NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 'Install npm dependencies'
+        run: npm ci
+
+      - name: Verify test coverage (jest)
+        run: |
+          npm run code-coverage
+
+      - name: 'SonarQube scan'
+        uses: sonarsource/sonarqube-scan-action@9598b8a83feef37de07f549027fab50ecffe6a6e # pin@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL}}
+
+      - name: 'Install make'
+        run: |
+          sudo apt-get update
+          sudo apt install make
+          make -version
+
+      - name: 'Install mbt build tool'
+        run: npm install -g mbt
+
+      - name: 'Build MTA archive'
+        run: npm run build
+
+      - name: 'Installation of CF CLI'
+        run: |
+          echo "deb [trusted=yes] https://packages.cloudfoundry.org/debian stable main" | sudo tee -a  /etc/apt/sources.list.d/cloudfoundry-cli.list
+          sudo apt-get update && sudo apt-get install -y cf8-cli
+
+      - name: 'Install required CF plugins'
+        run: cf install-plugin multiapps -f
+
+      - name: 'Login to CF'
+        run: cf login -a $CF_API -o $CF_ORG -s $CF_SPACE -u $CF_USERNAME -p $CF_PASSWORD
+        env:
+          CF_API: ${{ vars.CF_API }}
+          CF_ORG: ${{ vars.CF_ORG_MULTI_DEPLOY }}
+          CF_SPACE: ${{ vars.CF_SPACE_TEST }}
+          CF_USERNAME: ${{ secrets.CF_USERNAME }}
+          CF_PASSWORD: ${{ secrets.CF_PASSWORD }}
+
+      - name: 'Deployment (New Deploy)'
+        run: npm run deploy
+        continue-on-error: true
+
+      - name: 'Switch CF space to multi_redpl'
+        run: cf target -o $CF_ORG -s $CF_SPACE
+        env:
+          CF_ORG: ${{ vars.CF_ORG_MULTI_REDEPLOY }}
+          CF_SPACE: ${{ vars.CF_SPACE_TEST }}
+
+      - name: 'Multi tenant redeployment to CF'
+        run: npm run deploy
+
+      - name: 'Logout from CF'
+        run: cf logout
+
+  update_subscriptions:
+    name: Update Subscriptions (redeploy)
+    environment: Deploy
+    if: always() && github.event.pull_request.merged == true
+    runs-on: linux-amd64-s-docker-s
+    needs: deploy
+    steps:
+      - name: Check-out merged branch (enables git access)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download update script from features branch
+        run: |
+          git show origin/main-multi-tenant-features:test/cicd/tenant_update_registry.sh > tenant_update_registry.sh
+          chmod +x tenant_update_registry.sh
+
+      - name: Trigger SaaS Registry Subscription Update
+        run: registry_clientid='${{ secrets.REGISTRY_MT_CLIENTID }}' registry_clientsecret='${{ secrets.REGISTRY_MT_CLIENTSECRET }}' registry_uaa_url='${{ vars.REGISTRY_MT_UAA_URL }}' registry_saasreg_url='${{ vars.REGISTRY_MT_SAAS_REG_URL }}' ./tenant_update_registry.sh
+
+  subscribe_consumer_4:
+    name: Subscribe Consumer 4
+    environment: Deploy
+    if: always() && github.event.pull_request.merged == true
+    runs-on: linux-amd64-s-docker-s
+    needs: deploy
+    steps:
+      - name: Download BTP CLI
+        run: |
+          sudo curl -LJO https://tools.hana.ondemand.com/additional/btp-cli-linux-amd64-latest.tar.gz --cookie eula_${{ vars.BTP_CLI_EULA_VERSION }}_agreed=tools.hana.ondemand.com/developer-license-${{ vars.BTP_CLI_EULA_VERSION }}.txt
+          tar -xvzf btp-cli-linux-amd64-latest.tar.gz
+          sudo mv linux-amd64/btp /usr/local/bin/
+          btp --version
+
+      - name: 'Login to BTP CLI'
+        run: btp login --url https://cpcli.cf.sap.hana.ondemand.com --subdomain CNSSANDBOX --user ${{ secrets.CF_USERNAME }} --password ${{ secrets.CF_PASSWORD }}
+
+      - name: 'Subscribe app for Consumer 4'
+        run: btp subscribe accounts/subaccount --subaccount ${{ vars.BTP_SUBACCOUNT_MULTI_SUBSCRIBER_NEWDEPLOY }} --to-app poetry-slams-${{ vars.CF_ORG_MULTI_DEPLOY }}-test
+
+      - name: 'Check subscription state'
+        run: |
+          time=""
+          while [[ $(btp list accounts/subscription --subaccount ${{ vars.BTP_SUBACCOUNT_MULTI_SUBSCRIBER_NEWDEPLOY }} 2> /dev/null | grep -e poetry-slams-${{ vars.CF_ORG_MULTI_DEPLOY }}-test | grep -e " SUBSCRIBED ") == "" && $time != "xxxxxxxxxxxxxxxxxxxx" ]]
+          do time+="x";echo $time; sleep 3; done
+          if [[ $time == "xxxxxxxxxxxxxxxxxxxx" ]]; then exit 1; else exit 0; fi

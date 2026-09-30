@@ -1,0 +1,90 @@
+name: Multi tenant renovate post-processing
+
+on:
+  workflow_call:
+    inputs:
+      last_commit_label:
+        type: string
+        required: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  run:
+    runs-on: linux-amd64-s-docker-s
+    steps:
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ vars.BUILD_NODE_VERSION }}
+
+      - name: Create Token for App Installation
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.PRA_AUTH_APP_ID }}
+          private-key: ${{ secrets.PRA_AUTH_APP_KEY }}
+          owner: 'erp4sme'
+          repositories: 'partner-reference-application'
+          github-api-url: 'https://github.tools.sap/api/v3'
+
+      - name: Get Bot UID
+        id: bot-uid
+        run: |
+          res=$(curl -sLH "Authorization: Bearer ${{ steps.app-token.outputs.token }}" https://github.tools.sap/api/v3/users/PartnerReferenceApp%5Bbot%5D)
+          echo "uid=$(echo $res | jq -r .id)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Update root package-lock.json
+        run: npm update
+
+      - name: Update mtx/sidecar package-lock.json
+        run: |
+          cd mtx/sidecar
+          npm update
+          cd -
+
+      - name: Update app/visitors package-lock.json
+        run: |
+          cd app/visitors
+          npm update
+          cd -
+
+      - name: Update app/router package-lock.json
+        run: |
+          cd app/router
+          npm update
+          cd -
+
+      - name: Update app/poetryslams package-lock.json
+        run: |
+          cd app/poetryslams
+          npm update
+          cd -
+
+      - name: Check for Changes
+        id: check-for-changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "CHANGES_TO_COMMIT=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected. Proceeding with commit and push."
+          else
+            echo "CHANGES_TO_COMMIT=false" >> "$GITHUB_OUTPUT"
+            echo "No changes detected. Skipping commit and push."
+          fi
+
+      - name: Commit and Push Changes
+        if: steps.check-for-changes.outputs.CHANGES_TO_COMMIT == 'true'
+        run: |
+          git add .
+          git config --local user.name 'PartnerReferenceApp[bot]'
+          git config --local user.email '${{ steps.bot-uid.outputs.uid }}+PartnerReferenceApp[bot]@users.noreply.github.tools.sap'
+          git commit -m "Postprocessing - ${{ inputs.last_commit_label }}"
+          git push
