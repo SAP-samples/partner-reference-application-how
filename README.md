@@ -83,11 +83,12 @@ Now that you've built the base model of the Partner Reference Application and en
     1. In SAP Business Application Studio, open the **Command Palette** and enter *Git: Clone*.
     2. Enter the repository URL and hit **Enter**:
    	https://github.com/SAP-samples/partner-reference-application-how.git.
-2. In the terminal, navigate to the Partner Reference Application and execute the following commands in the required folders.
-    You're in the root folder of the project.
-    1. Run the following command to install the npm packages for the root folder.
+    3. Open your newly cloned project and run the following command in terminal:
+    ```
+    git checkout multi-tenant
+    ``` 
 
-7. After you've done all steps above, you can continue with [deploying the multi-tenant application to the provider SAP BTP subaccount](Tutorials/ex2/2.1-Multi-Tenancy-Deployment.md).
+2. After you've done all steps above, you can continue with [deploying the multi-tenant application to the provider SAP BTP subaccount](Tutorials/ex2/2.1-Multi-Tenancy-Deployment.md).
 
 ### Sync Point 2, 3 and 4
 It's now time to [clone the branch with the SAP S/4HANA Cloud Public Edition integration](../erp-integration), [the Service Broker branch](../ServiceBroker) or [clone the branch with the GenAI feature](../ai-integration) implemented. To do that, follow these steps:
