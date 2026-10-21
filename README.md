@@ -1,4 +1,5 @@
 # Description
+[![REUSE status](https://api.reuse.software/badge/github.com/SAP-samples/partner-reference-application-how)](https://api.reuse.software/info/github.com/SAP-samples/partner-reference-application-how)
 
 This repository contains the material for developing the multi-tenant Partner Reference Application, including the integration of SAP S/4HANA Cloud Public Edition and the SAP AI Core service. This workshop is based on the [Partner Reference Application](https://github.com/SAP-samples/partner-reference-application) and explains how to build your own multi-tenant application with CAP and deploy it to SAP BTP.
 
