@@ -25,7 +25,6 @@ class ConnectorS4HC extends Connector {
   static PROCESSING_STATUS_SERVICE = 'S4HC_ENTPROJECTPROCESSINGSTATUS_0001';
   static PROFILE_CODE_SERVICE = 'S4HC_ENTPROJECTPROFILECODE_0001';
 
-  static GENERATED_ID_PREFIX = 'POETRYSLAM_';
   static GENERATED_ID_SUFFIX_PLAN = '-PLAN';
   static GENERATED_ID_SUFFIX_EXE = '-EXE';
 
@@ -74,24 +73,17 @@ class ConnectorS4HC extends Connector {
     poetrySlamDate
   ) {
     try {
-      // Set project ID with pattern PRA-{{poetrySlam identifier}}
+      // Get subdomain for project ID prefix
+      // const tenantManager = new TenantManager();
+      // const subdomain = await tenantManager.getSubscriberSubdomain();
+      const subdomain = await TenantManager.getSubscriberSubdomain();
+      const prefix = subdomain ? subdomain + '-' : '';
 
-      const tenantManager = new TenantManager();
-      const subdomain = await tenantManager.getSubscriberSubdomain();
+      // Strip the "PS" prefix from the identifier, keep only the number
+      const eventNumber = poetrySlamIdentifier.replace(/^PS/, '');
 
-      const parts = subdomain.split('-');
-      let prefix;
-
-      // Take the first two parts
-      if (parts.length >= 2) {
-        prefix = [parts[0] + '-' + parts[1]];
-      } else {
-        prefix = parts[0];
-      }
-
-      prefix = prefix ? prefix + '-' : '';
-
-      const generatedID = `${prefix}${poetrySlamIdentifier}`;
+      // Set project ID with pattern <subdomain>-PS_<number>
+      const generatedID = prefix + 'PS_' + eventNumber;
       const generatedPLANID =
         generatedID + ConnectorS4HC.GENERATED_ID_SUFFIX_PLAN;
       const generatedEXEID =
@@ -104,7 +96,7 @@ class ConnectorS4HC extends Connector {
       this.projectRecord = {
         Project: generatedID,
         ProjectDescription: poetrySlamTitle,
-        ProjectStartDate: subtractDaysFormatRFC3339(poetrySlamDate, 30), // Set project start date 30 days before poetrySlam date
+        ProjectStartDate: subtractDaysFormatRFC3339(poetrySlamDate, 30),
         ProjectEndDate: subtractDaysFormatRFC3339(poetrySlamDate),
         EntProjectIsConfidential: false,
         ResponsibleCostCenter: ConnectorS4HC.RESPONSIBLE_COST_CENTER,
