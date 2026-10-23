@@ -139,16 +139,15 @@ It's now time to [clone the branch with the SAP S/4HANA Cloud Public Edition int
 	4. Select the org of the SAP BTP provider subaccount for the application (*prahow<nnn>*).
 	5. Select the SAP BTP Cloud Foundry runtime space (*dev*).
     6. To deploy the application, run the following command:
-    > Note: If you are at sync point 3, some small update needs to be done otherwise the Application will not load when accessing it via Workzone:
-    > - Open your Provider Subaccount.
-    > - Navigate to **Security** -> **Role Collections** and assign the Role Collection **Subscription Management Dashboard Administrator** to your Business User.
-    > - Navigate **Instances and Subscriptions** and launch the **SaaS Provisioning Service** application.
-    > - Update your consumer tenant.
-
     ```
     npm run deploy
     ```
-    7. After you've done all steps above, you can continue with [adding the service broker](/Tutorials/ex4/4.1-Multi-Tenancy-Service-Broker.md). Additionally, you can choose to go one with adding [generative artificial intelligence capabilities](/Tutorials/ex5/5-Multi-Tenancy-Features-GenAI.md) or implementing the [SAP Document AI feature](/Tutorials/ex5.1/5.1-Multi-Tenancy-Features-Document-AI.md). If you've already finished exercise 4/5 and added generative artificial intelligence or SAP Document AI, you can now start exploring your Partner Reference Application.
+    7. If you are at sync point 3, some small update need to be done otherwise the Application will not load when accessing it via Workzone:
+    - Open your Provider Subaccount.
+    - Navigate to **Security** -> **Role Collections** and assign the Role Collection **Subscription Management Dashboard Administrator** to your Business User.
+    - Navigate **Instances and Subscriptions** and launch the **SaaS Provisioning Service** application.
+    - Update your consumer tenant.
+    8. After you've done all steps above, you can continue with [adding the service broker](/Tutorials/ex4/4.1-Multi-Tenancy-Service-Broker.md). Additionally, you can choose to go one with adding [generative artificial intelligence capabilities](/Tutorials/ex5/5-Multi-Tenancy-Features-GenAI.md) or implementing the [SAP Document AI feature](/Tutorials/ex5.1/5.1-Multi-Tenancy-Features-Document-AI.md). If you've already finished exercise 4/5 and added generative artificial intelligence or SAP Document AI, you can now start exploring your Partner Reference Application.
 
 ## Code of Conduct
 
