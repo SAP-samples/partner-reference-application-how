@@ -79,7 +79,7 @@ To follow the exercises in this repository, you need the following:
 
 ### Sync Point 1
 Now that you've built the base model of the Partner Reference Application and enabled it for multitenancy, you need to clone our branch with the multi-tenant application. This ensures that everyone has the same changes for the application deployment. The following steps explain this in detail.
-1. Clone the application into your SAP Business Application Studio.
+1. Clone the application into your SAP Business Application Studio. For this navigate back to your project folder *usr/projects/*
     1. In SAP Business Application Studio, open the **Command Palette** and enter *Git: Clone*.
     2. Enter the repository URL and hit **Enter**:
    	https://github.com/SAP-samples/partner-reference-application-how.git.
@@ -134,14 +134,21 @@ It's now time to [clone the branch with the SAP S/4HANA Cloud Public Edition int
         ```
         cf login -a <API endpoint URL> --origin <Origin Key of your Identity Provider>
         ```
+        > Note: The Origin Key can be found in your provider account under *Security* -> *Trust Configuration*. Here you open the *Custom Identity Provider for Platform Users* and copy the Origin Key located under *Main Information*.
 	3. Enter your development user and password.
-	4. Select the org of the SAP BTP provider subaccount for the application. 
-	5. Select the SAP BTP Cloud Foundry runtime space (*app*).
-    6. To deploy the application, run the following command: 
+	4. Select the org of the SAP BTP provider subaccount for the application (*prahow<nnn>*).
+	5. Select the SAP BTP Cloud Foundry runtime space (*dev*).
+    6. To deploy the application, run the following command:
+    > Note: If you are at sync point 3, some small update needs to be done otherwise the Application will not load when accessing it via Workzone:
+    > - Open your Provider Subaccount.
+    > - Navigate to **Security** -> **Role Collections** and assign the Role Collection **Subscription Management Dashboard Administrator** to your Business User.
+    > - Navigate **Instances and Subscriptions** and launch the **SaaS Provisioning Service** application.
+    > - Update your consumer tenant.
+
     ```
     npm run deploy
-    ``` 
-    8. After you've done all steps above, you can continue with [adding the service broker](/Tutorials/ex4/4.1-Multi-Tenancy-Service-Broker.md). Additionally, you can choose to go one with adding [generative artificial intelligence capabilities](/Tutorials/ex5/5-Multi-Tenancy-Features-GenAI.md) or implementing the [SAP Document AI feature](/Tutorials/ex5.1/5.1-Multi-Tenancy-Features-Document-AI.md). If you've already finished exercise 4/5 and added generative artificial intelligence or SAP Document AI, you can now start exploring your Partner Reference Application.
+    ```
+    7. After you've done all steps above, you can continue with [adding the service broker](/Tutorials/ex4/4.1-Multi-Tenancy-Service-Broker.md). Additionally, you can choose to go one with adding [generative artificial intelligence capabilities](/Tutorials/ex5/5-Multi-Tenancy-Features-GenAI.md) or implementing the [SAP Document AI feature](/Tutorials/ex5.1/5.1-Multi-Tenancy-Features-Document-AI.md). If you've already finished exercise 4/5 and added generative artificial intelligence or SAP Document AI, you can now start exploring your Partner Reference Application.
 
 ## Code of Conduct
 
